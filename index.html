@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DIA-DSS Depot Tracker</title>
+<meta name="description" content="DIA-DSS Depot Tracker: a prototype that links three defence depots, scans QR labels, proposes transfers before purchases and tracks every consignment.">
+<meta name="author" content="Sabyasachi Samal, IIM Mumbai">
+<meta property="og:title" content="DIA-DSS Depot Tracker">
+<meta property="og:description" content="Three depots, one shared stock view, QR scanning and live consignment tracking.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231F3147'/%3E%3Cpath d='M12 30 32 16l20 14v20H12z' fill='%23D9A94E'/%3E%3Crect x='22' y='34' width='20' height='16' fill='%231F3147'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+/* Layout: control-room page. Header and KPI strip, then the depot map beside a guided walkthrough, then working tabs. */
+:root { color-scheme: light;
+  --bg: #F4F5F7; --surface: #FFFFFF; --surface-2: #EEF0F3; --ink: #18212D; --muted: #566070; --line: #D9DDE3;
+  --navy: #1F3147; --on-navy: #F4F1EA; --accent: #9A6A16; --accent-soft: #F3E6CC;
+  --red: #A8352A; --red-bg: #F6DAD5; --amber: #8C5A00; --amber-bg: #F7E5BF; --green: #356332; --green-bg: #DAEAD5;
+  --blue: #255F92; --blue-bg: #DCE8F4;
+  --serif: "Times New Roman", Times, "Liberation Serif", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F141B; --surface: #172029; --surface-2: #1E2833; --ink: #E7EBF0; --muted: #A2ACB9; --line: #2B3644;
+  --navy: #22374F; --on-navy: #F4F1EA; --accent: #D9A94E; --accent-soft: #3A2E17;
+  --red: #F2907F; --red-bg: #4A221D; --amber: #F2BE5A; --amber-bg: #45330F; --green: #93C98E; --green-bg: #1F3820;
+  --blue: #86BBE8; --blue-bg: #1B3249; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F141B; --surface: #172029; --surface-2: #1E2833; --ink: #E7EBF0; --muted: #A2ACB9; --line: #2B3644;
+  --navy: #22374F; --on-navy: #F4F1EA; --accent: #D9A94E; --accent-soft: #3A2E17;
+  --red: #F2907F; --red-bg: #4A221D; --amber: #F2BE5A; --amber-bg: #45330F; --green: #93C98E; --green-bg: #1F3820;
+  --blue: #86BBE8; --blue-bg: #1B3249; color-scheme: dark }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--serif); font-size: 16px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 18px 40px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 700; }
+h1 { font-size: 30px; letter-spacing: 0.2px; }
+h2 { font-size: 21px; }
+h3 { font-size: 17px; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+button { font-family: var(--serif); font-size: 15px; cursor: pointer; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); padding: 7px 13px; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--navy); color: var(--on-navy); border-color: var(--navy); }
+button.primary:hover { filter: brightness(1.15); }
+button.small { font-size: 13.5px; padding: 4px 10px; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+input, select { font-family: var(--serif); font-size: 15px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); }
+
+header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.title-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 3px 9px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink); border: 1px solid var(--line); }
+.head-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.kpi .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: 13.5px; color: var(--muted); }
+.kpi.red .v { color: var(--red); } .kpi.amber .v { color: var(--amber); } .kpi.blue .v { color: var(--blue); } .kpi.green .v { color: var(--green); }
+
+.row2 { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+
+#map { width: 100%; height: auto; display: block; }
+#map text { font-family: var(--serif); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13.5px; color: var(--muted); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+
+.tour ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.tour li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; }
+.tour li .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700;
+  background: var(--surface-2); color: var(--muted); font-family: var(--mono); }
+.tour li.done .n { background: var(--green-bg); color: var(--green); }
+.tour li.now { border-color: var(--accent); background: var(--accent-soft); }
+.tour li.now .n { background: var(--navy); color: var(--on-navy); }
+.tour li p { font-size: 14.5px; }
+.tour-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+nav.tabs button { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; padding: 9px 14px; font-size: 16px; color: var(--muted); }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 700; }
+nav.tabs .badge { font-family: var(--mono); font-size: 11.5px; background: var(--red-bg); color: var(--red); border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+td.c, th.c { text-align: center; }
+.cell { border-radius: 6px; padding: 7px 9px; cursor: pointer; border: 1px solid transparent; min-width: 140px; }
+.cell:hover { border-color: var(--ink); }
+.cell .s { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cell .meta { font-size: 12.5px; }
+.cell.red { background: var(--red-bg); } .cell.red .s, .cell.red .st { color: var(--red); }
+.cell.amber { background: var(--amber-bg); } .cell.amber .s, .cell.amber .st { color: var(--amber); }
+.cell.green { background: var(--green-bg); } .cell.green .s, .cell.green .st { color: var(--green); }
+.cell .st { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+.cell .inc { font-size: 12.5px; color: var(--blue); font-weight: 700; }
+.code3 { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border-radius: 4px; padding: 1px 6px; }
+.flash { animation: flash 1.4s ease-out 2; }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 var(--accent); } 50% { box-shadow: 0 0 0 5px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.labels { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.label { border: 1px dashed var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; background: var(--surface); text-align: center; }
+.label:hover { border-color: var(--accent); border-style: solid; }
+.qr { background: #FFFFFF; padding: 6px; border-radius: 4px; line-height: 0; }
+.qr img, .qr canvas { width: 96px; height: 96px; }
+.label .nm { font-size: 13.5px; font-weight: 700; }
+.form { display: flex; flex-direction: column; gap: 10px; }
+.form .r { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.form label { font-size: 14px; color: var(--muted); }
+#scanInput { font-family: var(--mono); flex: 1 1 220px; min-width: 0; }
+.msg { border-radius: 8px; padding: 10px 12px; font-size: 14.5px; border: 1px solid var(--line); background: var(--surface-2); }
+.msg.ok { background: var(--green-bg); border-color: transparent; }
+.msg.err { background: var(--red-bg); border-color: transparent; }
+.msg.warn { background: var(--amber-bg); border-color: transparent; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.item-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; }
+.item-card.hl { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.item-card .t { font-weight: 700; font-size: 16px; }
+.item-card .d { font-size: 14.5px; color: var(--muted); }
+.item-card .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+.compare { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; }
+.compare span b { font-variant-numeric: tabular-nums; }
+.pill { font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 8px; border-radius: 999px; }
+.pill.approved { background: var(--accent-soft); color: var(--accent); }
+.pill.transit { background: var(--blue-bg); color: var(--blue); }
+.pill.arrived { background: var(--amber-bg); color: var(--amber); }
+.pill.received { background: var(--green-bg); color: var(--green); }
+.pill.ordered { background: var(--blue-bg); color: var(--blue); }
+.bar { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--blue); width: 0; transition: width 0.4s linear; }
+.cons { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; }
+
+.log { font-size: 14px; }
+.log td:first-child { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; color: var(--muted); }
+.role { font-family: var(--mono); font-size: 11.5px; padding: 1px 7px; border-radius: 4px; background: var(--surface-2); white-space: nowrap; }
+
+.drawer { background: var(--surface-2); border-radius: 8px; padding: 12px 14px; font-size: 14.5px; display: flex; flex-direction: column; gap: 6px; }
+.drawer .f { font-family: var(--mono); font-size: 13px; }
+.foot { font-size: 13.5px; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .row2, .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) { h1 { font-size: 24px; } .item-card { grid-template-columns: minmax(0, 1fr); } .item-card .acts { justify-content: start; } }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="title-block">
+      <span class="eyebrow">Defence Inventory Audit and Decision-Support System</span>
+      <h1>DIA-DSS Depot Tracker</h1>
+      <p class="muted">Three depots share one stock view. Every receipt and issue is a QR scan, shortages are met from other depots first, and every consignment is tracked until it is received.</p>
+    </div>
+    <div class="head-actions">
+      <span class="chip">Illustrative data for demonstration</span>
+      <button id="resetBtn" type="button">Reset demo</button>
+    </div>
+  </header>
+
+  <section class="kpis" aria-label="Network summary">
+    <div class="kpi red"><span class="v" id="kRed">0</span><span class="l">Depot items below reorder point</span></div>
+    <div class="kpi amber"><span class="v" id="kAmber">0</span><span class="l">Depot items holding excess</span></div>
+    <div class="kpi blue"><span class="v" id="kTransit">0</span><span class="l">Consignments on the move</span></div>
+    <div class="kpi green"><span class="v" id="kSaved">₹0</span><span class="l">New purchases avoided by transfers</span></div>
+    <div class="kpi"><span class="v" id="kReview">₹0</span><span class="l">Idle stock sent for review</span></div>
+  </section>
+
+  <section class="row2">
+    <div class="card">
+      <div class="card-head"><h2>Live network map</h2><span class="muted" id="clock" style="font-size:14px"></span></div>
+      <svg id="map" viewBox="0 0 640 330" role="img" aria-label="Map of the three depots with consignments in transit"></svg>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--red)"></i>Depot has items to refill</span>
+        <span><i class="dot" style="background:var(--green)"></i>All items within levels</span>
+        <span><i class="dot" style="background:var(--blue)"></i>Consignment in transit</span>
+        <span>Transit time runs fast in this demo: one day takes about five seconds.</span>
+      </div>
+    </div>
+    <div class="card tour">
+      <div class="card-head"><h2>Guided walkthrough</h2><span class="muted" style="font-size:14px">Fuel pump shortage at North Depot</span></div>
+      <ol id="tourList"></ol>
+      <div class="tour-actions">
+        <button class="primary" id="tourNext" type="button">Start walkthrough</button>
+        <button id="tourSkip" type="button">Fast-forward travel</button>
+      </div>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" data-tab="board" aria-selected="true" type="button">Status board</button>
+    <button role="tab" data-tab="scan" aria-selected="false" type="button">Scan station</button>
+    <button role="tab" data-tab="moves" aria-selected="false" type="button">Transfers and orders<span class="badge" id="movesBadge" hidden>0</span></button>
+    <button role="tab" data-tab="review" aria-selected="false" type="button">Review list</button>
+    <button role="tab" data-tab="log" aria-selected="false" type="button">Audit log</button>
+    <button role="tab" data-tab="how" aria-selected="false" type="button">How it works</button>
+  </nav>
+
+  <!-- Status board -->
+  <section class="card" data-panel="board">
+    <div class="card-head"><h2>Status board</h2><span class="muted" style="font-size:14px">Select any cell to see how its levels are calculated.</span></div>
+    <div class="scroll"><table id="boardTable"></table></div>
+    <div class="drawer" id="cellDrawer" hidden></div>
+    <p class="foot">Red means stock is below the reorder point. Amber means stock is above the maximum level, so the extra can go to other depots. Green means stock is within its normal range. The three-letter code shows the ABC, VED and FSN classes.</p>
+  </section>
+
+  <!-- Scan station -->
+  <section class="card" data-panel="scan" hidden>
+    <div class="card-head"><h2>Scan station</h2><span class="muted" style="font-size:14px">This is the screen a storekeeper uses at the counter.</span></div>
+    <div class="grid2">
+      <div class="form">
+        <div class="r"><label for="stationDepot">Working at</label>
+          <select id="stationDepot"><option value="C">Central Depot</option><option value="N">North Depot</option><option value="E">East Depot</option></select></div>
+        <div class="r"><label for="scanInput">Scanner input</label>
+          <input id="scanInput" type="text" autocomplete="off" placeholder="Scan a label or type its code, then press Enter"></div>
+        <div class="r"><button type="button" class="primary" id="camBtn">Scan with camera</button>
+          <label for="photoInput">or read a photo of a label</label>
+          <input id="photoInput" type="file" accept="image/*" capture="environment"></div>
+        <div id="camBox" hidden style="display:flex;flex-direction:column;gap:8px">
+          <video id="camVideo" playsinline muted style="width:100%;max-width:420px;border-radius:8px;background:#000"></video>
+          <div class="r"><span class="muted" id="camStatus" style="font-size:14px">Point the camera at a QR label.</span><button type="button" class="small" id="camStop">Stop camera</button></div>
+        </div>
+        <div id="actionBox" class="msg" hidden></div>
+        <div id="scanMsg" class="msg">A handheld scanner types the label’s code into the box above, just like a keyboard. A phone or laptop can also scan a label with its camera, and in this demo you can select a label on the right to scan it.</div>
+      </div>
+      <div class="form">
+        <h3 id="labelsTitle">Bin labels at Central Depot</h3>
+        <div class="labels" id="labels"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Transfers and orders -->
+  <section class="card" data-panel="moves" hidden>
+    <div class="card-head"><h2>Transfers and orders</h2><span class="muted" style="font-size:14px">The system proposes; an officer approves.</span></div>
+    <h3>Suggested transfers</h3>
+    <div class="list" id="suggestList"></div>
+    <h3>Consignments</h3>
+    <div class="list" id="consList"></div>
+    <h3>Combined purchase orders</h3>
+    <div class="list" id="buyList"></div>
+  </section>
+
+  <!-- Review -->
+  <section class="card" data-panel="review" hidden>
+    <div class="card-head"><h2>Review list</h2><span class="muted" style="font-size:14px">Nothing is disposed of automatically. A review board decides.</span></div>
+    <div class="list" id="reviewList"></div>
+  </section>
+
+  <!-- Log -->
+  <section class="card" data-panel="log" hidden>
+    <div class="card-head"><h2>Audit log</h2><span class="muted" style="font-size:14px">Every scan, approval and movement, with who did it and when.</span></div>
+    <div class="scroll"><table class="log" id="logTable"></table></div>
+  </section>
+
+  <!-- How -->
+  <section class="card" data-panel="how" hidden>
+    <h2>How the system works</h2>
+    <div class="scroll"><table>
+      <tr><th>Part</th><th>What happens</th></tr>
+      <tr><td><b>QR label on every bin</b></td><td>Each bin carries a label with the item code, the depot and the lot. The same item has the same code at every depot, so the system knows that pumps at East Depot are the pumps North Depot needs.</td></tr>
+      <tr><td><b>Scan at every movement</b></td><td>A storekeeper scans the label whenever stock is received or issued. The stock figure on screen therefore always matches the shelf.</td></tr>
+      <tr><td><b>Three levels per item</b></td><td>Reorder point equals monthly use × lead time + reserve. Maximum level equals reorder point + three months of use. The reserve is never offered for transfer.</td></tr>
+      <tr><td><b>Transfer before buying</b></td><td>When a depot falls below its reorder point, the system looks for stock above the maximum level at the other two depots. It proposes a transfer when that is cheaper and faster than a purchase, and a single combined order for whatever is left.</td></tr>
+      <tr><td><b>Consignment tracking</b></td><td>An approved transfer gets its own consignment QR. The sending depot scans it out, its progress shows on the map, and the receiving depot scans it in after inspection. In real use the position would come from a GPS tracker on the vehicle.</td></tr>
+      <tr><td><b>Review, not disposal</b></td><td>Stock that will expire unused, or that exceeds what its equipment will ever need, goes to a review board for retain, redistribute, repair, return or dispose decisions.</td></tr>
+      <tr><td><b>Audit log</b></td><td>Every action is recorded with the role, the time and the reason. Auditors can test, for example, whether anything was bought while another depot held excess.</td></tr>
+    </table></div>
+    <p class="foot">In a real deployment the database sits on a secure government network, each user signs in with a role, and phones or handheld scanners at each depot connect to it. This demo keeps everything inside the page, and Reset demo restores the starting figures.</p>
+  </section>
+  <footer class="foot" style="display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px">
+    <span>DIA-DSS Depot Tracker, a prototype built by Sabyasachi Samal, IIM Mumbai.</span>
+    <span>All depots, items and figures are illustrative and are not actual defence inventory data.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const DEPOTS = {
+    C: { name: "Central Depot", short: "Central", x: 320, y: 215 },
+    N: { name: "North Depot", short: "North", x: 150, y: 80 },
+    E: { name: "East Depot", short: "East", x: 520, y: 115 },
+  };
+  const ROUTE_DAYS = { CN: 3, CE: 3, NE: 4 };
+  const routeDays = (a, b) => ROUTE_DAYS[[a, b].sort().join("")] || ROUTE_DAYS[a + b] || ROUTE_DAYS[b + a];
+  const SEC_PER_DAY = 5;
+  const BASE = [
+    { id: "I1", name: "Fuel injection pump", cost: 250000, L: 6, code: "A V S", tcost: 60000, use: { C: 1, N: 2, E: 1 }, res: { C: 4, N: 3, E: 2 }, stock: { C: 12, N: 9, E: 23 } },
+    { id: "I2", name: "Hydraulic actuator", cost: 120000, L: 4, code: "B E S", tcost: 30000, use: { C: 1, N: 1, E: 1 }, res: { C: 2, N: 2, E: 2 }, stock: { C: 7, N: 8, E: 7 } },
+    { id: "I3", name: "Vehicle battery", cost: 15000, L: 2, code: "A E F", tcost: 12000, use: { C: 10, N: 15, E: 12 }, res: { C: 10, N: 10, E: 10 }, stock: { C: 40, N: 32, E: 30 } },
+    { id: "I4", name: "Brake pad set", cost: 6000, L: 2, code: "A V F", tcost: 15000, use: { C: 20, N: 30, E: 25 }, res: { C: 20, N: 20, E: 20 }, stock: { C: 220, N: 70, E: 100 } },
+    { id: "I5", name: "Rubber seal kit", cost: 2500, L: 3, code: "C E S", tcost: 8000, use: { C: 10, N: 8, E: 6 }, res: { C: 10, N: 10, E: 10 }, stock: { C: 400, N: 50, E: 40 } },
+    { id: "I6", name: "Air filter element", cost: 1200, L: 1, code: "C D F", tcost: 8000, use: { C: 30, N: 40, E: 35 }, res: { C: 10, N: 10, E: 10 }, stock: { C: 100, N: 120, E: 90 } },
+  ];
+  const GEARBOX = { id: "I7", name: "Gearbox assembly (Mk I)", cost: 400000, stock: { C: 18, N: 0, E: 6 }, trucks: 20, years: 2, failPerYear: 1, reserve: 2 };
+  const SEAL_BATCH = { lot: "L2023-11", qty: 300, monthsToExpiry: 10 };
+
+  let S;
+  function freshState() {
+    return {
+      items: JSON.parse(JSON.stringify(BASE)),
+      cons: [], orders: [], log: [], reviewed: {}, saved: 0, reviewValue: 0, seq: 1, poSeq: 1, tour: -1,
+      station: "C", pending: null, highlight: null,
+    };
+  }
+  const $ = (s) => document.querySelector(s);
+  const inr = (n) => "₹" + Math.round(n).toLocaleString("en-IN");
+  const lakh = (n) => n >= 100000 ? "₹" + (n / 100000).toLocaleString("en-IN", { maximumFractionDigits: 2 }) + " lakh" : inr(n);
+  const now = () => new Date();
+  const hhmm = (d) => d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const item = (id) => S.items.find((i) => i.id === id);
+
+  function log(role, text) { S.log.unshift({ t: hhmm(now()), role, text }); }
+
+  // ---------- rules engine ----------
+  function levels(it, d) {
+    const use = it.use[d], res = it.res[d], rop = use * it.L + res, max = rop + 3 * use, s = it.stock[d];
+    const status = s < rop ? "red" : s > max ? "amber" : "green";
+    return { use, res, rop, max, s, status, need: s < rop ? max - s : 0, excess: Math.max(0, s - max) };
+  }
+  function incoming(itId, d) {
+    let q = 0;
+    S.cons.forEach((c) => { if (c.item === itId && c.to === d && c.status !== "received") q += c.qty; });
+    S.orders.forEach((o) => { if (o.item === itId && o.status === "ordered") q += (o.alloc[d] || 0); });
+    return q;
+  }
+  function committedOut(itId, d) {
+    let q = 0;
+    S.cons.forEach((c) => { if (c.item === itId && c.from === d && c.status === "approved") q += c.qty; });
+    return q;
+  }
+  function suggestions() {
+    const sug = [], buys = [];
+    S.items.forEach((it) => {
+      const avail = {};
+      Object.keys(DEPOTS).forEach((d) => { avail[d] = Math.max(0, levels(it, d).excess - committedOut(it.id, d)); });
+      const remaining = {};
+      Object.keys(DEPOTS).forEach((d) => {
+        const lv = levels(it, d);
+        let need = Math.max(0, lv.need - incoming(it.id, d));
+        if (need <= 0) return;
+        const donors = Object.keys(DEPOTS).filter((x) => x !== d && avail[x] > 0).sort((a, b) => avail[b] - avail[a]);
+        for (const from of donors) {
+          if (need <= 0) break;
+          const qty = Math.min(need, avail[from]);
+          const days = routeDays(from, d);
+          const buyCost = qty * it.cost, buyDays = it.L * 30;
+          if (it.tcost < buyCost && days < buyDays) {
+            sug.push({ key: it.id + from + d, item: it.id, from, to: d, qty, days, tcost: it.tcost, buyCost, buyDays });
+            avail[from] -= qty; need -= qty;
+          }
+        }
+        if (need > 0) remaining[d] = need;
+      });
+      const tot = Object.values(remaining).reduce((a, b) => a + b, 0);
+      if (tot > 0) buys.push({ item: it.id, alloc: remaining, qty: tot, value: tot * it.cost });
+    });
+    return { sug, buys };
+  }
+
+  // ---------- actions ----------
+  function approve(sg) {
+    const id = "TO-" + String(S.seq++).padStart(3, "0");
+    const it = item(sg.item);
+    S.cons.push({ id, item: sg.item, from: sg.from, to: sg.to, qty: sg.qty, days: sg.days, status: "approved", start: 0, saved: sg.buyCost });
+    log("Central controller", `Approved ${id}: ${sg.qty} × ${it.name} from ${DEPOTS[sg.from].name} to ${DEPOTS[sg.to].name}. Transfer cost ${inr(sg.tcost)} against ${lakh(sg.buyCost)} to buy new.`);
+    return id;
+  }
+  function dispatch(c) {
+    const it = item(c.item);
+    if (it.stock[c.from] < c.qty) { log("System", `${c.id} could not be dispatched because ${DEPOTS[c.from].name} no longer holds ${c.qty}.`); return; }
+    it.stock[c.from] -= c.qty;
+    c.status = "transit"; c.start = Date.now();
+    log(DEPOTS[c.from].short + " storekeeper", `Scanned out ${c.id}: ${c.qty} × ${it.name} on an issue voucher. Vehicle left for ${DEPOTS[c.to].name}.`);
+  }
+  function receive(c) {
+    const it = item(c.item);
+    it.stock[c.to] += c.qty; c.status = "received";
+    S.saved += c.saved;
+    log(DEPOTS[c.to].short + " storekeeper", `Scanned in ${c.id} after inspection: ${c.qty} × ${it.name} received. Stock now ${it.stock[c.to]}.`);
+  }
+  function raiseOrder(b) {
+    const id = "PO-" + String(S.poSeq++).padStart(3, "0");
+    const it = item(b.item);
+    S.orders.push({ id, item: b.item, alloc: { ...b.alloc }, qty: b.qty, value: b.value, status: "ordered" });
+    const parts = Object.entries(b.alloc).map(([d, q]) => `${q} for ${DEPOTS[d].short}`).join(", ");
+    log("Central controller", `Raised combined order ${id} for ${b.qty} × ${it.name} (${parts}), value ${lakh(b.value)}, because no depot held excess.`);
+  }
+  function deliverOrder(o) {
+    const it = item(o.item);
+    Object.entries(o.alloc).forEach(([d, q]) => { it.stock[d] += q; });
+    o.status = "received";
+    log("Supplier delivery", `${o.id} delivered: ${o.qty} × ${it.name} received at ${Object.keys(o.alloc).map((d) => DEPOTS[d].short).join(" and ")} after inspection.`);
+  }
+
+  // ---------- map ----------
+  function depotStatus(d) {
+    let red = 0, amber = 0;
+    S.items.forEach((it) => { const lv = levels(it, d); if (lv.status === "red") red++; if (lv.status === "amber") amber++; });
+    return { red, amber };
+  }
+  function renderMap() {
+    const svg = $("#map");
+    const css = getComputedStyle(document.documentElement);
+    const col = (v) => css.getPropertyValue(v).trim();
+    let h = "";
+    const pairs = [["C", "N"], ["C", "E"], ["N", "E"]];
+    pairs.forEach(([a, b]) => {
+      const A = DEPOTS[a], B = DEPOTS[b];
+      h += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="${col("--line")}" stroke-width="3" stroke-dasharray="6 6"/>`;
+      const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+      h += `<text x="${mx}" y="${my - 8}" text-anchor="middle" font-size="13" fill="${col("--muted")}">${routeDays(a, b)} days by road</text>`;
+    });
+    S.cons.filter((c) => c.status === "transit" || c.status === "arrived").forEach((c) => {
+      const A = DEPOTS[c.from], B = DEPOTS[c.to];
+      const p = progress(c);
+      h += `<line x1="${A.x}" y1="${A.y}" x2="${A.x + (B.x - A.x) * p}" y2="${A.y + (B.y - A.y) * p}" stroke="${col("--blue")}" stroke-width="4"/>`;
+      const x = A.x + (B.x - A.x) * p, y = A.y + (B.y - A.y) * p;
+      h += `<g transform="translate(${x},${y})"><rect x="-16" y="-11" width="32" height="22" rx="5" fill="${col("--blue")}"/>
+        <rect x="-10" y="-5" width="12" height="9" rx="1.5" fill="${col("--surface")}"/><rect x="4" y="-5" width="7" height="9" rx="1.5" fill="${col("--surface")}" opacity="0.7"/></g>`;
+      h += `<text x="${x}" y="${y + 28}" text-anchor="middle" font-size="12.5" font-weight="700" fill="${col("--blue")}">${c.id}  ${Math.round(p * 100)}%</text>`;
+    });
+    Object.entries(DEPOTS).forEach(([k, D]) => {
+      const st = depotStatus(k);
+      const ring = st.red ? col("--red") : col("--green");
+      const fill = st.red ? col("--red-bg") : col("--green-bg");
+      h += `<g><circle cx="${D.x}" cy="${D.y}" r="30" fill="${fill}" stroke="${ring}" stroke-width="3"/>
+        <text x="${D.x}" y="${D.y + 5}" text-anchor="middle" font-size="16" font-weight="700" fill="${col("--ink")}">${k}D</text>
+        <text x="${D.x}" y="${D.y + 52}" text-anchor="middle" font-size="15" font-weight="700" fill="${col("--ink")}">${D.name}</text>
+        <text x="${D.x}" y="${D.y + 70}" text-anchor="middle" font-size="13" fill="${st.red ? col("--red") : col("--muted")}">${st.red ? st.red + " to refill" : "All within levels"}${st.amber ? ", " + st.amber + " with excess" : ""}</text></g>`;
+    });
+    h += `<text x="20" y="318" font-size="12.5" fill="${col("--muted")}">Schematic layout, not to scale</text>`;
+    svg.innerHTML = h;
+  }
+  function progress(c) {
+    if (c.status === "arrived" || c.status === "received") return 1;
+    if (c.status !== "transit") return 0;
+    return Math.min(1, (Date.now() - c.start) / (c.days * SEC_PER_DAY * 1000));
+  }
+
+  // ---------- board ----------
+  function renderBoard() {
+    let h = `<tr><th>Item</th><th class="c">Code</th>${Object.values(DEPOTS).map((d) => `<th>${d.name}</th>`).join("")}</tr>`;
+    S.items.forEach((it) => {
+      h += `<tr><td><b>${it.id} ${esc(it.name)}</b><div class="muted" style="font-size:13px">${inr(it.cost)} each, ${it.L} month lead time</div></td><td class="c"><span class="code3">${it.code}</span></td>`;
+      Object.keys(DEPOTS).forEach((d) => {
+        const lv = levels(it, d), inc = incoming(it.id, d);
+        const lab = lv.status === "red" ? "Reorder" : lv.status === "amber" ? "Excess" : "OK";
+        const det = lv.status === "red" ? `Needs ${lv.need}` : lv.status === "amber" ? `${lv.excess} spare` : `Within ${lv.rop} to ${lv.max}`;
+        const hl = S.highlight === it.id + d ? " flash" : "";
+        h += `<td><div class="cell ${lv.status}${hl}" tabindex="0" role="button" data-cell="${it.id}|${d}" aria-label="${esc(it.name)} at ${DEPOTS[d].name}: ${lab}">
+          <div class="st">${lab}</div><div class="s">${lv.s}</div><div class="meta">${det}</div>${inc ? `<div class="inc">${inc} on the way</div>` : ""}</div></td>`;
+      });
+      h += `</tr>`;
+    });
+    $("#boardTable").innerHTML = h;
+  }
+  function showCell(id, d) {
+    const it = item(id), lv = levels(it, d), dr = $("#cellDrawer");
+    dr.hidden = false;
+    dr.innerHTML = `<b>${esc(it.name)} at ${DEPOTS[d].name}</b>
+      <span class="f">Reorder point = ${lv.use} per month × ${it.L} months + reserve ${lv.res} = ${lv.rop}</span>
+      <span class="f">Maximum level = ${lv.rop} + 3 × ${lv.use} = ${lv.max}</span>
+      <span class="f">Stock now = ${lv.s}${lv.status === "red" ? `, which is below ${lv.rop}, so the need is ${lv.max} − ${lv.s} = ${lv.need}` : lv.status === "amber" ? `, which is above ${lv.max}, so ${lv.excess} can be offered to other depots` : ", which is within its normal range"}.</span>
+      <span>The reserve of ${lv.res} is never offered for transfer.</span>`;
+  }
+
+  // ---------- scan ----------
+  const labelCode = (id, d) => `DIA|${d}D|${id}|BIN`;
+  const consCode = (c) => `DIA|CONS|${c.id}`;
+  function qrInto(el, text, size) {
+    el.innerHTML = "";
+    if (typeof QRCode === "function") {
+      try { new QRCode(el, { text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M }); return; } catch (e) { /* fall through */ }
+    }
+    el.innerHTML = `<span class="mono">${esc(text)}</span>`;
+  }
+  function renderLabels() {
+    const d = S.station;
+    $("#labelsTitle").textContent = "Bin labels at " + DEPOTS[d].name;
+    const box = $("#labels");
+    box.innerHTML = "";
+    S.items.forEach((it) => {
+      const div = document.createElement("div");
+      div.className = "label"; div.tabIndex = 0; div.setAttribute("role", "button");
+      div.setAttribute("aria-label", "Scan label for " + it.name);
+      div.innerHTML = `<div class="qr"></div><span class="nm">${it.id} ${esc(it.name)}</span><span class="mono">${labelCode(it.id, d)}</span>`;
+      qrInto(div.querySelector(".qr"), labelCode(it.id, d), 96);
+      div.addEventListener("click", () => handleScan(labelCode(it.id, d)));
+      div.addEventListener("keydown", (e) => { if (e.key === "Enter") handleScan(labelCode(it.id, d)); });
+      box.appendChild(div);
+    });
+  }
+  function setMsg(kind, html) { const m = $("#scanMsg"); m.className = "msg " + kind; m.innerHTML = html; }
+  function handleScan(raw) {
+    const code = String(raw || "").trim();
+    if (!code) return;
+    const parts = code.split("|");
+    if (parts[0] !== "DIA") { setMsg("err", `The code <span class="mono">${esc(code)}</span> is not a DIA-DSS label. Check that the right label was scanned.`); return; }
+    if (parts[1] === "CONS") {
+      const c = S.cons.find((x) => x.id === parts[2]);
+      if (!c) { setMsg("err", `Consignment ${esc(parts[2])} is not on record.`); return; }
+      if (c.to !== S.station) { setMsg("warn", `${c.id} is addressed to ${DEPOTS[c.to].name}. Switch the station to that depot to receive it.`); return; }
+      if (c.status === "received") { setMsg("warn", `${c.id} has already been received.`); return; }
+      if (c.status !== "arrived") { setMsg("warn", `${c.id} is still ${c.status === "approved" ? "waiting to be dispatched" : "on the road"}. It can be scanned in once it arrives.`); return; }
+      receive(c); setMsg("ok", `${c.id} received. ${c.qty} × ${esc(item(c.item).name)} added to ${DEPOTS[c.to].name}.`);
+      if (c.item === "I1") tourOnReceive(); renderAll(); return;
+    }
+    const d = parts[1] && parts[1][0], it = item(parts[2]);
+    if (!it || !DEPOTS[d]) { setMsg("err", `The label <span class="mono">${esc(code)}</span> does not match any item.`); return; }
+    if (d !== S.station) { setMsg("warn", `This label belongs to ${DEPOTS[d].name}, but the station is set to ${DEPOTS[S.station].name}. Stock can only be moved at the depot that holds it.`); return; }
+    S.pending = { id: it.id, d };
+    const lv = levels(it, d);
+    const ab = $("#actionBox");
+    ab.hidden = false; ab.className = "msg";
+    ab.innerHTML = `<div class="form"><b>${esc(it.name)} at ${DEPOTS[d].name}: ${lv.s} in stock</b>
+      <div class="r"><label for="qtyIn">Quantity</label><input id="qtyIn" type="number" min="1" value="${Math.min(2, Math.max(1, lv.s))}" style="width:90px">
+      <button class="primary" type="button" id="issueBtn">Record issue to a unit</button><button type="button" id="rcptBtn">Record receipt</button></div></div>`;
+    $("#issueBtn").onclick = () => doMove(-1);
+    $("#rcptBtn").onclick = () => doMove(1);
+    setMsg("", `Label read: <span class="mono">${esc(code)}</span>. Choose what is happening to the stock.`);
+  }
+  function doMove(sign) {
+    const p = S.pending; if (!p) return;
+    const it = item(p.id), q = parseInt($("#qtyIn").value, 10);
+    if (!(q > 0)) { setMsg("err", "Enter a quantity of at least 1."); return; }
+    if (sign < 0 && q > it.stock[p.d]) { setMsg("err", `Only ${it.stock[p.d]} are in stock, so ${q} cannot be issued.`); return; }
+    const before = levels(it, p.d).status;
+    it.stock[p.d] += sign * q;
+    const after = levels(it, p.d);
+    log(DEPOTS[p.d].short + " storekeeper", `Scanned ${sign < 0 ? "issue" : "receipt"} of ${q} × ${it.name}. Stock now ${it.stock[p.d]}.`);
+    let note = `${sign < 0 ? "Issue" : "Receipt"} recorded. Stock is now ${after.s}.`;
+    if (after.status === "red" && before !== "red") { note += ` It has fallen below the reorder point of ${after.rop}, so the system has raised a need for ${after.need}.`; log("System", `${it.name} at ${DEPOTS[p.d].name} fell below its reorder point. Need raised for ${after.need}.`); }
+    setMsg(after.status === "red" ? "warn" : "ok", note);
+    S.pending = null; $("#actionBox").hidden = true;
+    renderAll();
+  }
+  function readPhoto(file) {
+    if (!file) return;
+    if (typeof jsQR !== "function") { setMsg("err", "The photo reader did not load. Type or scan the code instead."); return; }
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 1200 / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas"); cv.width = img.width * scale; cv.height = img.height * scale;
+      const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0, cv.width, cv.height);
+      const data = cx.getImageData(0, 0, cv.width, cv.height);
+      const res = jsQR(data.data, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      if (res && res.data) handleScan(res.data); else setMsg("err", "No QR code was found in that photo. Hold the label flat and try again.");
+    };
+    img.onerror = () => setMsg("err", "That file could not be opened as an image.");
+    img.src = url;
+  }
+
+
+  // ---------- live camera scanning ----------
+  let camStream = null, camTimer = null;
+  function stopCam() {
+    if (camTimer) { cancelAnimationFrame(camTimer); camTimer = null; }
+    if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+    $("#camBox").hidden = true;
+  }
+  async function startCam() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setMsg("err", "This browser cannot open the camera here. The site must be opened over https, or you can use the photo option."); return; }
+    if (typeof jsQR !== "function") { setMsg("err", "The QR reader did not load. Check the internet connection and reload the page."); return; }
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    } catch (e) { setMsg("err", "The camera could not be opened. Allow camera access in the browser and try again."); return; }
+    const v = $("#camVideo"); v.srcObject = camStream; $("#camBox").hidden = false;
+    try { await v.play(); } catch (e) { /* autoplay guard */ }
+    const cv = document.createElement("canvas"), cx = cv.getContext("2d", { willReadFrequently: true });
+    let last = "";
+    const loop = () => {
+      if (!camStream) return;
+      if (v.readyState >= 2 && v.videoWidth) {
+        const sc = Math.min(1, 640 / v.videoWidth);
+        cv.width = v.videoWidth * sc; cv.height = v.videoHeight * sc;
+        cx.drawImage(v, 0, 0, cv.width, cv.height);
+        const res = jsQR(cx.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height, { inversionAttempts: "dontInvert" });
+        if (res && res.data && res.data !== last) {
+          last = res.data; $("#camStatus").textContent = "Read: " + res.data;
+          stopCam(); handleScan(res.data); return;
+        }
+      }
+      camTimer = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+
+  // ---------- transfers ----------
+  function renderMoves() {
+    const { sug, buys } = suggestions();
+    const sl = $("#suggestList");
+    sl.innerHTML = sug.length ? "" : `<p class="muted">No transfers are needed right now.</p>`;
+    sug.forEach((sg) => {
+      const it = item(sg.item);
+      const div = document.createElement("div");
+      div.className = "item-card" + (S.tour === 1 && sg.item === "I1" ? " hl" : "");
+      div.innerHTML = `<div><div class="t">Move ${sg.qty} × ${esc(it.name)} from ${DEPOTS[sg.from].name} to ${DEPOTS[sg.to].name}</div>
+        <div class="compare"><span>Transfer: <b>${inr(sg.tcost)}</b> and <b>${sg.days} days</b></span><span>Buy new: <b>${lakh(sg.buyCost)}</b> and <b>${sg.buyDays / 30} months</b></span></div>
+        <div class="d">${DEPOTS[sg.from].short} holds stock above its maximum level, so its own reserve is untouched.</div></div>
+        <div class="acts"><button class="primary small" type="button">Approve transfer</button></div>`;
+      div.querySelector("button").onclick = () => { approve(sg); if (sg.item === "I1") tourOnApprove(); renderAll(); };
+      sl.appendChild(div);
+    });
+
+    const cl = $("#consList");
+    cl.innerHTML = S.cons.length ? "" : `<p class="muted">No consignments yet. Approve a transfer to create one.</p>`;
+    S.cons.slice().reverse().forEach((c) => {
+      const it = item(c.item), p = progress(c);
+      const pill = { approved: "Approved, awaiting dispatch", transit: "In transit", arrived: "Arrived, scan to receive", received: "Received" }[c.status];
+      const daysLeft = Math.max(0, c.days * (1 - p));
+      const div = document.createElement("div");
+      div.className = "item-card" + (S.tour >= 2 && S.tour <= 4 && c.item === "I1" && c.status !== "received" ? " hl" : "");
+      div.innerHTML = `<div class="cons"><div class="qr"></div><div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+        <div class="t">${c.id}: ${c.qty} × ${esc(it.name)}</div>
+        <div class="d">${DEPOTS[c.from].name} to ${DEPOTS[c.to].name}. <span class="pill ${c.status === "transit" ? "transit" : c.status}">${pill}</span></div>
+        ${c.status === "transit" ? `<div class="bar"><i id="bar-${c.id}" style="width:${Math.round(p * 100)}%"></i></div><div class="d" id="eta-${c.id}">About ${daysLeft.toFixed(1)} days to go. Last position update ${hhmm(now())}.</div>` : ""}
+        </div></div><div class="acts"></div>`;
+      qrInto(div.querySelector(".qr"), consCode(c), 80);
+      const acts = div.querySelector(".acts");
+      if (c.status === "approved") {
+        const b = document.createElement("button"); b.className = "primary small"; b.type = "button"; b.textContent = `Scan out at ${DEPOTS[c.from].short}`;
+        b.onclick = () => { dispatch(c); if (c.item === "I1") tourOnDispatch(); renderAll(); }; acts.appendChild(b);
+      }
+      if (c.status === "arrived") {
+        const b = document.createElement("button"); b.className = "primary small"; b.type = "button"; b.textContent = `Scan in at ${DEPOTS[c.to].short}`;
+        b.onclick = () => { S.station = c.to; $("#stationDepot").value = c.to; handleScan(consCode(c)); }; acts.appendChild(b);
+      }
+      cl.appendChild(div);
+    });
+
+    const bl = $("#buyList");
+    bl.innerHTML = "";
+    buys.forEach((b) => {
+      const it = item(b.item);
+      const div = document.createElement("div"); div.className = "item-card";
+      div.innerHTML = `<div><div class="t">Buy ${b.qty} × ${esc(it.name)} in one order</div>
+        <div class="d">No depot holds excess. Split on arrival: ${Object.entries(b.alloc).map(([d, q]) => `${q} to ${DEPOTS[d].short}`).join(", ")}. Value ${lakh(b.value)}, lead time ${it.L} months.</div></div>
+        <div class="acts"><button class="primary small" type="button">Raise combined order</button></div>`;
+      div.querySelector("button").onclick = () => { raiseOrder(b); renderAll(); };
+      bl.appendChild(div);
+    });
+    S.orders.slice().reverse().forEach((o) => {
+      const it = item(o.item);
+      const div = document.createElement("div"); div.className = "item-card";
+      div.innerHTML = `<div><div class="t">${o.id}: ${o.qty} × ${esc(it.name)}</div>
+        <div class="d">${Object.entries(o.alloc).map(([d, q]) => `${q} to ${DEPOTS[d].short}`).join(", ")}. <span class="pill ${o.status}">${o.status === "ordered" ? "Ordered" : "Delivered"}</span></div></div><div class="acts"></div>`;
+      if (o.status === "ordered") {
+        const b = document.createElement("button"); b.className = "small"; b.type = "button"; b.textContent = "Simulate delivery";
+        b.onclick = () => { deliverOrder(o); renderAll(); }; div.querySelector(".acts").appendChild(b);
+      }
+      bl.appendChild(div);
+    });
+    if (!bl.children.length) bl.innerHTML = `<p class="muted">No purchases are needed right now.</p>`;
+
+    const open = sug.length + buys.length + S.cons.filter((c) => c.status === "approved" || c.status === "arrived").length;
+    const bd = $("#movesBadge"); bd.hidden = !open; bd.textContent = open;
+  }
+
+  // ---------- review ----------
+  function renderReview() {
+    const seal = item("I5");
+    const netUse = seal.use.C + seal.use.N + seal.use.E;
+    const usable = netUse * SEAL_BATCH.monthsToExpiry;
+    const atRisk = Math.max(0, SEAL_BATCH.qty - usable);
+    const gbNeed = GEARBOX.years * GEARBOX.failPerYear + GEARBOX.reserve;
+    const gbHeld = GEARBOX.stock.C + GEARBOX.stock.N + GEARBOX.stock.E;
+    const gbSurplus = Math.max(0, gbHeld - gbNeed);
+    const rows = [
+      { key: "seal", title: `Rubber seal kits at Central Depot: ${atRisk} likely to expire`, value: atRisk * seal.cost,
+        detail: `Lot ${SEAL_BATCH.lot} holds ${SEAL_BATCH.qty} kits that expire in ${SEAL_BATCH.monthsToExpiry} months. The network uses ${netUse} a month, so at most ${netUse} × ${SEAL_BATCH.monthsToExpiry} = ${usable} can be used in time. New seal kit purchases are frozen, and North and East draw from this lot first.` },
+      { key: "gear", title: `Mk I gearbox assemblies: ${gbSurplus} beyond lifetime need`, value: gbSurplus * GEARBOX.cost,
+        detail: `${gbHeld} are held (${GEARBOX.stock.C} at Central, ${GEARBOX.stock.E} at East). ${GEARBOX.trucks} Mk I trucks retire in ${GEARBOX.years} years with about ${GEARBOX.failPerYear} failure a year, so the lifetime need is ${GEARBOX.years} × ${GEARBOX.failPerYear} + reserve ${GEARBOX.reserve} = ${gbNeed}.` },
+    ];
+    const rl = $("#reviewList"); rl.innerHTML = "";
+    rows.forEach((r) => {
+      const done = S.reviewed[r.key];
+      const div = document.createElement("div"); div.className = "item-card";
+      div.innerHTML = `<div><div class="t">${r.title}</div><div class="d">${r.detail}</div><div class="d"><b>Value under review: ${lakh(r.value)}.</b> ${done ? "Sent to the review board, which will decide to retain, redistribute, repair, return or dispose." : ""}</div></div>
+        <div class="acts"><button class="small ${done ? "" : "primary"}" type="button" ${done ? "disabled" : ""}>${done ? "Sent to board" : "Send to review board"}</button></div>`;
+      div.querySelector("button").onclick = () => { S.reviewed[r.key] = true; S.reviewValue += r.value; log("Inventory controller", `Sent to review board: ${r.title}, value ${lakh(r.value)}.`); renderAll(); };
+      rl.appendChild(div);
+    });
+  }
+
+  function renderLog() {
+    $("#logTable").innerHTML = `<tr><th>Time</th><th>Role</th><th>Action</th></tr>` +
+      (S.log.length ? S.log.map((l) => `<tr><td>${l.t}</td><td><span class="role">${esc(l.role)}</span></td><td>${esc(l.text)}</td></tr>`).join("") : `<tr><td colspan="3" class="muted">Nothing recorded yet.</td></tr>`);
+  }
+
+  function renderKpis() {
+    let red = 0, amber = 0;
+    S.items.forEach((it) => Object.keys(DEPOTS).forEach((d) => { const s = levels(it, d).status; if (s === "red") red++; if (s === "amber") amber++; }));
+    $("#kRed").textContent = red; $("#kAmber").textContent = amber;
+    $("#kTransit").textContent = S.cons.filter((c) => c.status === "transit").length;
+    $("#kSaved").textContent = lakh(S.saved); $("#kReview").textContent = lakh(S.reviewValue);
+  }
+
+  // ---------- tour ----------
+  const TOUR = [
+    ["See the shortage", "North Depot holds 9 fuel pumps against a reorder point of 15, so its cell turns red and the need is 21 − 9 = 12."],
+    ["Read the suggestion", "East Depot holds 23 pumps against a maximum of 11. The system proposes moving the 12 extra pumps, which costs ₹60,000 and takes 4 days instead of ₹30 lakh and 6 months."],
+    ["Approve the transfer", "The central inventory controller approves it, and consignment TO-001 gets its own QR code."],
+    ["Scan out at East Depot", "The East storekeeper scans the consignment out. East stock falls to 11, which is exactly its maximum level."],
+    ["Track the vehicle", "The consignment moves across the map, and its progress updates live until it arrives."],
+    ["Scan in at North Depot", "North scans the consignment QR after inspection. Its stock rises to 21, the cell turns green, and the saving is counted."],
+  ];
+  function renderTour() {
+    $("#tourList").innerHTML = TOUR.map((t, i) => `<li class="${i < S.tour ? "done" : i === S.tour ? "now" : ""}"><span class="n">${i < S.tour ? "✓" : i + 1}</span><div><b>${t[0]}</b><p class="muted">${t[1]}</p></div></li>`).join("");
+    const btn = $("#tourNext");
+    const c = S.cons.find((x) => x.item === "I1" && x.to === "N" && x.status !== "received");
+    if (S.tour < 0) { btn.textContent = "Start walkthrough"; btn.disabled = false; return; }
+    if (S.tour >= 5) { btn.textContent = "Walkthrough complete"; btn.disabled = true; return; }
+    const next = S.tour === 3 ? 5 : S.tour + 1;
+    btn.textContent = "Next: " + TOUR[next][0];
+    btn.disabled = next === 5 && !(c && c.status === "arrived");
+  }
+  function tourOnApprove() { if (S.tour === 1 || S.tour === 0) S.tour = 2; }
+  function tourOnDispatch() { if (S.tour >= 0 && S.tour < 4) S.tour = 4; }
+  function tourOnReceive() { if (S.tour >= 0 && S.tour <= 4) S.tour = 6; }
+  function tourStep() {
+    const next = S.tour < 0 ? 0 : S.tour + 1;
+    if (next === 0) { S.tour = 0; showTab("board"); S.highlight = "I1N"; showCell("I1", "N"); }
+    else if (next === 1) { S.tour = 1; S.highlight = null; showTab("moves"); }
+    else if (next === 2) { const sg = suggestions().sug.find((x) => x.item === "I1" && x.to === "N"); if (sg) approve(sg); S.tour = 2; showTab("moves"); }
+    else if (next === 3) { const c = S.cons.find((x) => x.item === "I1" && x.to === "N" && x.status === "approved"); if (c) dispatch(c); S.tour = 4; }
+    else if (next === 5) {
+      const c = S.cons.find((x) => x.item === "I1" && x.to === "N" && x.status === "arrived");
+      if (c) { S.station = "N"; $("#stationDepot").value = "N"; handleScan(consCode(c)); }
+      S.tour = 6; S.highlight = "I1N"; showTab("board");
+    }
+    renderAll();
+  }
+
+  // ---------- tabs and loop ----------
+  function showTab(name) {
+    document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+    document.querySelectorAll("[data-panel]").forEach((p) => { p.hidden = p.dataset.panel !== name; });
+    if (name === "scan") renderLabels();
+  }
+  function renderAll() { renderKpis(); renderMap(); renderBoard(); renderMoves(); renderReview(); renderLog(); renderTour(); }
+
+  function tick() {
+    let arrived = false, moving = false;
+    S.cons.forEach((c) => {
+      if (c.status !== "transit") return;
+      moving = true;
+      const p = progress(c);
+      const bar = document.getElementById("bar-" + c.id), eta = document.getElementById("eta-" + c.id);
+      if (bar) bar.style.width = Math.round(p * 100) + "%";
+      if (eta) eta.textContent = `About ${Math.max(0, c.days * (1 - p)).toFixed(1)} days to go. Last position update ${hhmm(now())}.`;
+      if (p >= 1) { c.status = "arrived"; arrived = true; log("Tracker", `${c.id} reached ${DEPOTS[c.to].name}. Waiting for the receipt scan.`); }
+    });
+    $("#clock").textContent = "Updated " + hhmm(now());
+    if (arrived) renderAll(); else if (moving) { renderMap(); renderKpis(); }
+  }
+
+  function init() {
+    S = freshState();
+    log("System", "Nightly check complete: 4 depot items below reorder point and 3 holding excess.");
+    $("#stationDepot").value = "C";
+    renderAll(); renderLabels();
+  }
+
+  document.querySelectorAll("nav.tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  $("#boardTable").addEventListener("click", (e) => { const c = e.target.closest("[data-cell]"); if (c) { const [i, d] = c.dataset.cell.split("|"); showCell(i, d); } });
+  $("#boardTable").addEventListener("keydown", (e) => { if (e.key === "Enter") { const c = e.target.closest("[data-cell]"); if (c) { const [i, d] = c.dataset.cell.split("|"); showCell(i, d); } } });
+  $("#stationDepot").addEventListener("change", (e) => { S.station = e.target.value; S.pending = null; $("#actionBox").hidden = true; renderLabels(); });
+  $("#scanInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); handleScan(e.target.value); e.target.value = ""; } });
+  $("#camBtn").addEventListener("click", startCam);
+  $("#camStop").addEventListener("click", stopCam);
+  $("#photoInput").addEventListener("change", (e) => { readPhoto(e.target.files && e.target.files[0]); e.target.value = ""; });
+  $("#tourNext").addEventListener("click", tourStep);
+  $("#tourSkip").addEventListener("click", () => { S.cons.forEach((c) => { if (c.status === "transit") c.start = Date.now() - c.days * SEC_PER_DAY * 1000; }); tick(); renderAll(); });
+  $("#resetBtn").addEventListener("click", () => { init(); showTab("board"); $("#cellDrawer").hidden = true; setMsg("", "Demo reset to the starting figures."); });
+  try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderMap); } catch (e) { /* older browsers */ }
+  new MutationObserver(renderMap).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  init();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
